@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xoder Repo Wiki Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #141414;
+      --bg-tertiary: #1a1a1a;
+      --gold: #d4a574;
+      --gold-dim: #8b7355;
+      --text-primary: #e0d6c8;
+      --text-secondary: #8a8a8a;
+      --border: #2a2a2a;
+      --success: #4caf50;
+      --warning: #ff9800;
+      --error: #f44336;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Consolas', 'Courier New', monospace;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    a { color: var(--gold); }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--gold-dim); }
+
+    /* ── Sidebar ─────────────────────────────── */
+    .sidebar {
+      width: 280px; min-width: 280px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar-header {
+      padding: 20px; border-bottom: 1px solid var(--border);
+    }
+    .sidebar-header h1 {
+      color: var(--gold); font-size: 18px; margin-bottom: 4px;
+    }
+    .sidebar-header .subtitle {
+      color: var(--text-secondary); font-size: 11px;
+    }
+    .search-box { margin: 12px 16px; position: relative; }
+    .search-box input {
+      width: 100%; padding: 8px 12px;
+      background: var(--bg-tertiary); border: 1px solid var(--border);
+      color: var(--text-primary); font-family: inherit; font-size: 13px;
+      outline: none; border-radius: 4px;
+    }
+    .search-box input:focus { border-color: var(--gold-dim); }
+    .search-results {
+      position: absolute; top: 100%; left: 0; right: 0;
+      background: var(--bg-tertiary); border: 1px solid var(--border);
+      border-top: none; border-radius: 0 0 4px 4px; z-index: 10;
+      display: none; max-height: 300px; overflow-y: auto;
+    }
+    .search-results.active { display: block; }
+    .search-result-item {
+      padding: 8px 12px; cursor: pointer; font-size: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-result-item:hover { background: rgba(212,165,116,0.08); }
+    .search-result-item .title { color: var(--gold); font-size: 13px; }
+    .search-result-item .snippet { color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .nav-section {
+      padding: 8px 16px 4px; color: var(--gold-dim);
+      font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px;
+    }
+    .nav-item {
+      padding: 8px 16px 8px 24px; cursor: pointer; font-size: 13px;
+      color: var(--text-secondary); transition: all 0.15s;
+      display: flex; align-items: center; gap: 8px;
+      border-left: 2px solid transparent;
+    }
+    .nav-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .nav-item.active {
+      color: var(--gold); background: rgba(212,165,116,0.06);
+      border-left: 2px solid var(--gold);
+    }
+    .nav-item .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.success { background: var(--success); box-shadow: 0 0 6px rgba(76,175,80,0.4); }
+    .status-dot.failed { background: var(--error); box-shadow: 0 0 6px rgba(244,67,54,0.4); }
+    .status-dot.pending { background: var(--warning); box-shadow: 0 0 6px rgba(255,152,0,0.4); }
+
+    /* ── Main Content ────────────────────────── */
+    .main-content {
+      flex: 1; overflow-y: auto; padding: 40px 60px; max-width: 960px;
+    }
+    .main-content h1 { color: var(--gold); font-size: 26px; margin-bottom: 8px; }
+    .main-content h2 { color: var(--gold); font-size: 18px; margin: 36px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .main-content h3 { color: var(--text-primary); font-size: 15px; margin: 24px 0 8px; }
+    .main-content h4 { color: var(--text-secondary); font-size: 13px; margin: 16px 0 6px; }
+    .main-content p { line-height: 1.75; margin: 12px 0; font-size: 14px; }
+    .main-content code {
+      background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px;
+      font-size: 12px; color: var(--gold-dim);
+    }
+    .main-content pre {
+      background: var(--bg-tertiary); padding: 16px; border-radius: 6px;
+      overflow-x: auto; margin: 16px 0; border: 1px solid var(--border);
+    }
+    .main-content pre code { background: none; padding: 0; color: var(--text-primary); }
+    .main-content blockquote {
+      border-left: 3px solid var(--gold-dim); padding: 8px 16px;
+      margin: 16px 0; background: rgba(212,165,116,0.04);
+    }
+    .main-content table {
+      width: 100%; border-collapse: collapse; margin: 16px 0;
+    }
+    .main-content th {
+      background: var(--bg-tertiary); padding: 10px 14px; text-align: left;
+      font-size: 12px; color: var(--gold); border-bottom: 2px solid var(--border);
+    }
+    .main-content td {
+      padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    .main-content tr:hover td { background: rgba(212,165,116,0.03); }
+    .main-content ul, .main-content ol { padding-left: 24px; margin: 12px 0; }
+    .main-content li { margin: 6px 0; line-height: 1.7; }
+    .main-content hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+    .main-content img { max-width: 100%; border-radius: 4px; }
+    .main-content strong { color: var(--gold-dim); }
+
+    /* ── Loading & Empty States ──────────────── */
+    .loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 200px; color: var(--text-secondary); font-size: 14px;
+    }
+    .loading::after {
+      content: ''; display: inline-block; width: 12px; height: 12px;
+      margin-left: 10px; border: 2px solid var(--gold-dim);
+      border-top-color: transparent; border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state { text-align: center; padding: 80px 20px; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+    .empty-state h2 { color: var(--text-secondary); border: none; margin-top: 8px; }
+    .empty-state p { color: var(--text-secondary); font-size: 13px; }
+
+    .error-banner {
+      background: rgba(244,67,54,0.1); border: 1px solid rgba(244,67,54,0.3);
+      border-radius: 6px; padding: 12px 16px; margin: 16px 0; font-size: 13px;
+    }
+    .error-banner code { color: var(--error); }
+
+    /* ── Page metadata header ────────────────── */
+    .page-meta {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 24px;
+      font-size: 11px; color: var(--text-secondary);
+    }
+    .page-status {
+      padding: 2px 8px; border-radius: 3px; font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .page-status.success { background: rgba(76,175,80,0.15); color: var(--success); }
+    .page-status.failed { background: rgba(244,67,54,0.15); color: var(--error); }
+    .page-status.pending { background: rgba(255,152,0,0.15); color: var(--warning); }
+  </style>
+</head>
+<body>
+  <!-- ── Sidebar ─────────────────────────────── -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>Xoder Repo Wiki</h1>
+      <div class="subtitle">离线自愈知识引擎</div>
+    </div>
+    <div class="search-box">
+      <input type="text" id="search" placeholder="搜索 Wiki 内容..." oninput="doSearch(this.value)" onfocus="showSearchResults()" onblur="hideSearchResults()">
+      <div class="search-results" id="search-results"></div>
+    </div>
+    <div class="nav-section">总览</div>
+    <div class="nav-item active" data-page="overview" onclick="loadPage('overview')">
+      <span style="font-size:14px">&#128196;</span> 项目概述
+    </div>
+    <div class="nav-item" data-page="start" onclick="loadPage('start')">
+      <span style="font-size:14px">&#128640;</span> 快速开始
+    </div>
+    <div class="nav-item" data-page="architecture" onclick="loadPage('architecture')">
+      <span style="font-size:14px">&#127959;</span> 架构设计
+    </div>
+    <div class="nav-item" data-page="api_spec" onclick="loadPage('api_spec')">
+      <span style="font-size:14px">&#128268;</span> API 手册
+    </div>
+    <div class="nav-item" data-page="db_schema" onclick="loadPage('db_schema')">
+      <span style="font-size:14px">&#128451;</span> 数据库结构
+    </div>
+    <div class="nav-section">模块文档</div>
+    <div id="module-nav"></div>
+  </div>
+
+  <!-- ── Main Content ────────────────────────── -->
+  <div class="main-content" id="content">
+    <div class="empty-state">
+      <div class="icon">&#128218;</div>
+      <h2>Xoder Repo Wiki</h2>
+      <p>选择一个文档开始阅读，或使用上方的搜索框查找内容。</p>
+      <p style="margin-top:24px; font-size:11px;">
+        运行 <code>xoder run</code> 生成 Wiki 内容后刷新此页面。
+      </p>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // ── Init ──────────────────────────────────
+      mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+
+      var API_BASE = '/api';
+      var currentPage = null;
+      var allPages = [];
+
+      // ── Load page list ────────────────────────
+      function loadPages() {
+        fetch(API_BASE + '/pages')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            allPages = data;
+            renderNav(data);
+          })
+          .catch(function() {
+            console.log('No server connected - using demo mode');
+            renderDemoNav();
+          });
+      }
+
+      function renderNav(pages) {
+        var nav = document.getElementById('module-nav');
+        var html = '';
+        pages.forEach(function(p) {
+          var sc = p.status === 'success' ? 'success' : p.status === 'failed' ? 'failed' : 'pending';
+          var icon = p.type === 'module' ? '&#128193;' : '&#128196;';
+          html += '<div class="nav-item" data-page="' + escAttr(p.id) + '" onclick="loadPage(\'' + escAttr(p.id) + '\')">'
+                + '<span class="status-dot ' + sc + '"></span> '
+                + '<span style="font-size:12px">' + icon + '</span> '
+                + escHtml(p.name)
+                + '</div>';
+        });
+        nav.innerHTML = html;
+      }
+
+      function renderDemoNav() {
+        var nav = document.getElementById('module-nav');
+        var demos = [
+          {id:'user_service', name:'User Service', status:'pending'},
+          {id:'order_service', name:'Order Service', status:'pending'}
+        ];
+        var html = '';
+        demos.forEach(function(p) {
+          var sc = p.status === 'success' ? 'success' : p.status === 'failed' ? 'failed' : 'pending';
+          html += '<div class="nav-item" data-page="' + escAttr(p.id) + '" onclick="loadPage(\'' + escAttr(p.id) + '\')">'
+                + '<span class="status-dot ' + sc + '"></span> '
+                + '<span style="font-size:12px">&#128193;</span> '
+                + escHtml(p.name)
+                + '</div>';
+        });
+        nav.innerHTML = html;
+      }
+
+      // ── Load page content ─────────────────────
+      window.loadPage = function(pageId) {
+        currentPage = pageId;
+        var items = document.querySelectorAll('.nav-item');
+        for (var i = 0; i < items.length; i++) items[i].classList.remove('active');
+        var active = document.querySelector('[data-page="' + escAttr(pageId) + '"]');
+        if (active) active.classList.add('active');
+
+        var content = document.getElementById('content');
+        content.innerHTML = '<div class="loading">&#x52A0;&#x8F7D;&#x4E2D;...</div>';
+
+        fetch(API_BASE + '/page/' + encodeURIComponent(pageId))
+          .then(function(r) {
+            if (!r.ok) throw new Error('Not found');
+            return r.text();
+          })
+          .then(function(md) {
+            content.innerHTML = marked.parse(md);
+            renderMermaidBlocks(content);
+          })
+          .catch(function() {
+            content.innerHTML = '<div class="empty-state">'
+              + '<div class="icon">&#128221;</div>'
+              + '<h2>&#x6587;&#x6863;&#x672A;&#x751F;&#x6210;</h2>'
+              + '<p>&#x6A21;&#x5757; <code>' + escHtml(pageId) + '</code> &#x7684; Wiki &#x5C1A;&#x672A;&#x751F;&#x6210;&#x6216;&#x6587;&#x4EF6;&#x4E0D;&#x5B58;&#x5728;&#x3002;</p>'
+              + '<p style="margin-top:16px">&#x8FD0;&#x884C; <code>xoder run</code> &#x751F;&#x6210;&#x540E;&#x518D;&#x8BD5;&#x3002;</p>'
+              + '</div>';
+          });
+      };
+
+      // ── Mermaid rendering ─────────────────────
+      function renderMermaidBlocks(container) {
+        setTimeout(function() {
+          var blocks = container.querySelectorAll('code.language-mermaid');
+          var remaining = blocks.length;
+          if (remaining === 0) return;
+
+          for (var i = 0; i < blocks.length; i++) {
+            (function(block) {
+              var id = 'mermaid-' + Math.random().toString(36).slice(2, 10);
+              try {
+                mermaid.render(id, block.textContent).then(function(result) {
+                  var div = document.createElement('div');
+                  div.innerHTML = result.svg;
+                  div.style.cssText = 'background:#141414;padding:20px;border-radius:6px;margin:16px 0;border:1px solid #2a2a2a;overflow-x:auto;';
+                  block.parentElement.replaceWith(div);
+                }).catch(function() {
+                  block.parentElement.style.border = '1px solid #f44336';
+                });
+              } catch(e) {
+                block.parentElement.style.border = '1px solid #f44336';
+              }
+            })(blocks[i]);
+          }
+        }, 100);
+      }
+
+      // ── Search ────────────────────────────────
+      var searchTimer = null;
+      window.doSearch = function(query) {
+        var resultsDiv = document.getElementById('search-results');
+        if (!query || query.trim().length === 0) {
+          resultsDiv.innerHTML = '';
+          resultsDiv.classList.remove('active');
+          return;
+        }
+
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() {
+          fetch(API_BASE + '/search?q=' + encodeURIComponent(query.trim()))
+            .then(function(r) { return r.json(); })
+            .then(function(results) {
+              if (results.length === 0) {
+                resultsDiv.innerHTML = '<div class="search-result-item" style="color:var(--text-secondary)">&#x65E0;&#x7ED3;&#x679C;</div>';
+              } else {
+                var html = '';
+                results.forEach(function(r) {
+                  html += '<div class="search-result-item" onmousedown="loadPage(\'' + escAttr(r.page) + '\')">'
+                        + '<div class="title">' + escHtml(r.title) + ' <span style="color:var(--text-secondary);font-size:10px">(' + escHtml(r.page) + ')</span></div>'
+                        + '<div class="snippet">' + escHtml(r.snippet) + '</div>'
+                        + '</div>';
+                });
+                resultsDiv.innerHTML = html;
+              }
+              resultsDiv.classList.add('active');
+            })
+            .catch(function() {
+              resultsDiv.innerHTML = '<div class="search-result-item" style="color:var(--text-secondary)">&#x670D;&#x52A1;&#x5668;&#x672A;&#x8FDE;&#x63A5;</div>';
+              resultsDiv.classList.add('active');
+            });
+        }, 250);
+      };
+
+      window.showSearchResults = function() {
+        var resultsDiv = document.getElementById('search-results');
+        if (resultsDiv.innerHTML.trim()) resultsDiv.classList.add('active');
+      };
+
+      window.hideSearchResults = function() {
+        setTimeout(function() {
+          document.getElementById('search-results').classList.remove('active');
+        }, 150);
+      };
+
+      // ── Keyboard shortcuts ────────────────────
+      document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key === 'k') {
+          e.preventDefault();
+          document.getElementById('search').focus();
+        }
+      });
+
+      // ── Utility helpers ───────────────────────
+      function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+      function escAttr(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+
+      // ── Bootstrap ─────────────────────────────
+      loadPages();
+    })();
+  </script>
+</body>
+</html>
