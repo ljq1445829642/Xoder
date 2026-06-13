@@ -245,6 +245,6 @@ See `skills/xoder-repowiki.md` for pipeline design. PRs must include correspondi
 ## Related Projects
 
 - [opencode](https://opencode.ai) — The agent runtime that drives Xoder pipelines
-- [DeepWiki](https://github.com/nicepkg/DeepWiki) — Inspiration for deep Wiki generation
-- [Understand-Anything](https://github.com/nicepkg/Understand-Anything) — importMap technique inspiration
+- [DeepWiki](https://github.com/AsyncFuncAI/deepwiki-open) — Inspiration for deep Wiki generation
+- [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) — importMap technique inspiration
 >>>>>>> 120adb4 (Initial commit: Xoder — offline self-healing repo wiki engine)
