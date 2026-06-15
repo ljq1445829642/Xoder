@@ -160,11 +160,11 @@ class ORMPenetrator:
                     continue
                 fpath = os.path.join(root, fname)
                 try:
-                    self._parse_mybatis_xml(fpath, tables)
+                    self._parse_mybatis_xml(fpath, tables, relations)
                 except ET.ParseError:
                     continue
 
-    def _parse_mybatis_xml(self, file_path: str, tables: List[Dict]):
+    def _parse_mybatis_xml(self, file_path: str, tables: List[Dict], relations: List[Dict]):
         tree = ET.parse(file_path)
         root_el = tree.getroot()
         namespace = root_el.attrib.get("namespace", "")
@@ -204,6 +204,29 @@ class ORMPenetrator:
                     "fields": fields,
                     "entity_class": namespace,
                     "orm_type": "mybatis",
+                })
+
+        # Extract relationships from <association> and <collection> tags
+        for assoc in root_el.findall(".//association") + root_el.findall(".//collection"):
+            prop = assoc.attrib.get("property", "")
+            jtype = assoc.attrib.get("javaType", assoc.attrib.get("ofType", ""))
+            select_attr = assoc.attrib.get("select", "")
+            if select_attr:
+                target_mapper = select_attr.rsplit('.', 1)[-1] if '.' in select_attr else select_attr
+                target_table = target_mapper.replace('Mapper', '').replace('DAO', '').replace('Dao', '').lower()
+                relations.append({
+                    "from_table": table_name or namespace.rsplit('.', 1)[-1].lower(),
+                    "to_table": target_table,
+                    "type": "ONE_TO_MANY" if assoc.tag == "collection" else "MANY_TO_ONE",
+                    "via_field": prop,
+                })
+            elif jtype:
+                target_table = jtype.rsplit('.', 1)[-1].lower()
+                relations.append({
+                    "from_table": table_name or namespace.rsplit('.', 1)[-1].lower(),
+                    "to_table": target_table,
+                    "type": "ONE_TO_MANY" if assoc.tag == "collection" else "MANY_TO_ONE",
+                    "via_field": prop,
                 })
 
     @staticmethod

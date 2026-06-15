@@ -8,6 +8,10 @@ description: Use when assigned a business domain's source files and need to gene
 ## 概述
 Domain Worker 是 Xoder 管线的第二阶段并发子代理。被分配一个业务域的所有文件后，在域内完成数据过滤、AST解析、业务规则提取、Wiki文档生成。
 
+**所有生成的 Wiki 内容必须使用中文编写。** 代码示例、类名、方法名保留原文，但描述、解释、章节标题全部使用中文。
+
+**输出目录必须为 `.xoder/repowiki/zh/content/` 下的对应子目录。**
+
 ## When to Use
 - 由 `xoder-repowiki.md` Phase 2 并发派发
 - 当需要为单个业务域生成包含业务语义分析的完整技术文档时

@@ -16,6 +16,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -62,8 +63,29 @@ def _skip_braces(s: str, i: int) -> int:
     return len(s) - 1
 
 def _strip_cmts(s: str) -> str:
-    s = re.sub(r'//.*$', '', s, flags=re.MULTILINE)
-    return re.sub(r'/\*.*?\*/', '', s, flags=re.DOTALL)
+    """Strip comments with fast state machine. O(n) single pass, no regex backtracking."""
+    result = []
+    i = 0
+    n = len(s)
+    while i < n:
+        if i + 1 < n and s[i] == '/' and s[i+1] == '/':
+            # Line comment — skip to end of line
+            i += 2
+            while i < n and s[i] != '\n':
+                i += 1
+            if i < n:
+                result.append('\n')
+                i += 1
+        elif i + 1 < n and s[i] == '/' and s[i+1] == '*':
+            # Block comment — skip to */
+            i += 2
+            while i + 1 < n and not (s[i] == '*' and s[i+1] == '/'):
+                i += 1
+            i += 2  # skip */
+        else:
+            result.append(s[i])
+            i += 1
+    return ''.join(result)
 
 def _load_xoderignore(ws: str) -> List[str]:
     p = os.path.join(ws, ".xoderignore")
@@ -293,24 +315,24 @@ def _j_members(body: str, cls: Dict) -> None:
 def _j_parse(src: str) -> Dict:
     clean = _strip_cmts(src)
     cl, im = [], [m.group(1) for m in _J_IMP.finditer(clean)]
-    pos, pa = 0, []
-    while pos < len(clean):
-        am = _ANN_RE.match(clean, pos)
-        if am:
-            pa.append(am.group(0).strip())
-            pos = am.end()
-            while pos < len(clean) and clean[pos] in ' \t\r\n': pos += 1
-            continue
-        cm = _J_CLS.match(clean, pos)
-        if cm:
-            c = {"class_name":cm.group(1),"modifiers":_j_mods(cm.group(0)),"annotations":pa[:],
-                 "extends":cm.group(2).strip() if cm.group(2) else None,
-                 "implements":[x.strip() for x in cm.group(3).split(",")] if cm.group(3) else [],
-                 "methods":[],"fields":[],"dependencies":[]}
-            pa = []; bs = cm.end()-1; be = _skip_braces(clean, bs)
-            _j_members(clean[bs+1:be], c); cl.append(c); pos = be + 1; continue
-        pos += 1
-    return {"classes":cl,"functions":[],"imports":im,"entry_points":_detect_entries(src,"java")}
+    
+    # Fast: use finditer to jump directly to class definitions
+    for cm in _J_CLS.finditer(clean):
+        # Look backwards for annotations (within 500 chars before class)
+        before = clean[max(0, cm.start()-500):cm.start()]
+        pa = _anns(before)
+        c = {"class_name": cm.group(1),
+             "modifiers": _j_mods(clean[max(0,cm.start()-30):cm.start()]),
+             "annotations": pa,
+             "extends": cm.group(2).strip() if cm.group(2) else None,
+             "implements": [x.strip() for x in cm.group(3).split(",")] if cm.group(3) else [],
+             "methods": [], "fields": [], "dependencies": [], "business_rules": []}
+        bs = cm.end() - 1
+        be = _skip_braces(clean, bs)
+        _j_members(clean[bs+1:be], c)
+        cl.append(c)
+    
+    return {"classes": cl, "functions": [], "imports": im, "entry_points": _detect_entries(src, "java")}
 
 # ---- TypeScript/JS parser ----
 _TS_CLS = re.compile(r'(?:export\s+(?:default\s+)?)?(?:abstract\s+)?class\s+(\w+)'
@@ -558,6 +580,11 @@ _EP_PATS: List[Tuple[re.Pattern, str, Optional[str], Optional[int]]] = [
 def _detect_entries(src: str, lang: str = "unknown", fp: str = "") -> List[Dict]:
     if lang is None:
         lang = "unknown"
+    # Detect class-level @RequestMapping for path prefix
+    class_prefix = ""
+    cls_req = re.search(r'@RequestMapping\s*\(\s*["\']([^"\']+)["\']', src[:2000])
+    if cls_req:
+        class_prefix = cls_req.group(1).rstrip('/')
     entries, lines = [], src.split('\n')
     for ln, line in enumerate(lines, 1):
         for pat, etype, method_or, pidx in _EP_PATS:
@@ -577,79 +604,19 @@ def _detect_entries(src: str, lang: str = "unknown", fp: str = "") -> List[Dict]
                 elif lang in ("typescript","javascript"): hm = re.search(r'(?:function|async)\s+(\w+)\s*\(', hl)
                 else: hm = re.search(r'(\w+)\s*\(', hl)
                 if hm: entry["handler"] = hm.group(1); break
+            if class_prefix and entry.get("path"):
+                ep = entry["path"]
+                if not ep.startswith('/'):
+                    ep = '/' + ep
+                if not ep.startswith(class_prefix):
+                    ep = class_prefix.rstrip('/') + ep
+                entry["path"] = ep
             entries.append(entry); break
     return entries
 
 # ========================================================================
 # Main parse dispatch
 # ========================================================================
-
-def _large_file_parse(src: str, sfx: str) -> Dict:
-    """Lightweight parser for files >3000 lines. Extracts class/method signatures
-    without traversing method bodies. Avoids regex blowup on large files."""
-    cl, fn, imps, eps = [], [], [], []
-    
-    if sfx == ".java":
-        imps = [m.group(1) for m in _J_IMP.finditer(src)]
-        for cm in _J_CLS.finditer(src):
-            c = {"class_name": cm.group(1),
-                 "modifiers": _j_mods(cm.group(0)),
-                 "annotations": _anns(src[max(0,cm.start()-200):cm.start()]),
-                 "extends": cm.group(2).strip() if cm.group(2) else None,
-                 "implements": [x.strip() for x in cm.group(3).split(",")] if cm.group(3) else [],
-                 "methods": [], "fields": [], "dependencies": [], "business_rules": []}
-            # Extract method signatures (no body traversal)
-            bs = cm.end() - 1
-            be = _skip_braces(src, bs)
-            body = src[bs+1:be]
-            for mm in _J_MET.finditer(body):
-                ret_raw = mm.group(1).strip()
-                ret = " ".join(w for w in ret_raw.split() if w not in _J_MOD_KW)
-                nm = mm.group(2)
-                if nm not in _J_KW and not ret.startswith("//"):
-                    c["methods"].append({
-                        "name": nm, "return_type": ret,
-                        "parameters": _j_params(mm.group(3) or ""),
-                        "annotations": [], "dependencies": [], "business_rules": []
-                    })
-            cl.append(c)
-        eps = _detect_entries(src, "java")
-    
-    elif sfx in (".ts", ".tsx", ".js", ".jsx"):
-        imps = [m.group(1) for m in _TS_IMP.finditer(src)] + [m.group(1) for m in _TS_REQ.finditer(src)]
-        for cm in _TS_CLS.finditer(src):
-            c = {"class_name": cm.group(1), "modifiers": [], "annotations": [],
-                 "extends": cm.group(2).strip() if cm.group(2) else None,
-                 "implements": [], "methods": [], "fields": [], "dependencies": [], "business_rules": []}
-            bs = cm.end() - 1
-            be = _skip_braces(src, bs)
-            body = src[bs+1:be]
-            for mm in _TS_MT.finditer(body):
-                if mm.group(1) not in _TS_KW:
-                    c["methods"].append({
-                        "name": mm.group(1),
-                        "return_type": mm.group(3).strip() if mm.group(3) else None,
-                        "parameters": _ts_ps(mm.group(2)),
-                        "annotations": [], "dependencies": [], "business_rules": []
-                    })
-            cl.append(c)
-        for fm in _TS_FN.finditer(src):
-            fn.append({"name": fm.group(1), "return_type": fm.group(3).strip() if fm.group(3) else None,
-                       "parameters": _ts_ps(fm.group(2)),
-                       "annotations": [], "dependencies": [], "business_rules": []})
-        eps = _detect_entries(src, "typescript")
-    
-    elif sfx == ".py":
-        return _py_parse(src, "large_file")  # Python ast is fast even on large files
-    
-    elif sfx == ".go":
-        return _g_parse(src)  # Go parser is fast (regex, no char-by-char loop)
-    
-    else:
-        return _fb_parse(src)
-    
-    return {"classes": cl, "functions": fn, "imports": imps, "entry_points": eps}
-
 
 def parse_file(file_path: str) -> Dict:
     if not os.path.isfile(file_path):
@@ -664,13 +631,6 @@ def parse_file(file_path: str) -> Dict:
                 "warning":f"File too large ({sz:.1f}MB)","symbols":{"classes":[],"imports":[],"entry_points":[]}}
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f: src = f.read()
-        ln_count = src.count('\n')
-        if ln_count > 3000:
-            # Large file: signatures-only mode — extract class/method signatures,
-            # skip method body traversal (dependencies/biz_rules) to avoid regex blowup
-            syms = _large_file_parse(src, sfx)
-            syms["large_file"] = True
-            syms["large_file_lines"] = ln_count
         if sfx == ".py": syms = _py_parse(src, file_path)
         elif sfx == ".java": syms = _j_parse(src)
         elif sfx in (".ts",".tsx",".js",".jsx"):
@@ -761,7 +721,32 @@ def build_callgraph(ws_dir: str) -> Dict:
     for m in disc.get("modules",[]):
         for f in m.get("files",[]): af.append(os.path.join(ws_dir, f))
     nodes, edges, sids, sedges, perr = [], [], set(), set(), []
-    for fp in af:
+    
+    def _process_file(fp):
+        try:
+            res = parse_file(fp)
+            if res.get("error"):
+                return None, fp, True
+            return res, fp, False
+        except Exception:
+            return None, fp, True
+    
+    results = []
+    with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 4))) as executor:
+        futures = {executor.submit(_process_file, fp): fp for fp in af}
+        for future in as_completed(futures):
+            results.append(future.result())
+    
+    for res, fp, is_err in results:
+        if is_err or res is None:
+            perr.append(fp)
+            continue
+        rp = os.path.relpath(fp, ws_dir).replace('\\', '/')
+        # Skip noise directories for large projects
+        skip_patterns = ('native/', 'conf/db/migration/', 'node_modules/', 'vendor/', 
+                        '.xoder/', '.xoder-local/', 'skills/', 'scripts/', 'dashboard/', '__pycache__/')
+        if any(rp.startswith(p) or ('/' + p) in rp for p in skip_patterns):
+            continue
         res = parse_file(fp)
         if res.get("error"): perr.append(fp); continue
         rp = os.path.relpath(fp, ws_dir).replace('\\','/')

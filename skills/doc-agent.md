@@ -8,6 +8,11 @@ description: Use when domain wikis are ready and final hierarchical wiki assembl
 ## 概述
 Doc Agent 是 Xoder 管线的最终阶段子代理。综合所有域 Wiki 和全局拓扑，生成分层目录结构的最终知识库，包括阅读指南、动态章节和交叉引用。
 
+**所有输出必须使用中文。** 章节标题、描述文字、阅读指南全部中文。代码/类名/路径保留原文。
+
+**所有输出必须写入 `.xoder/repowiki/zh/content/` 目录。** 不得写入其他路径。
+en/ 英文目录仅在主 Skill 显式指定语言为 en 时才生成。
+
 ## When to Use
 - 由 `xoder-repowiki.md` Phase 4 自动调用
 - 当域 Wiki 和全局拓扑就绪，需要组装最终文档树时
